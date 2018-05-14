@@ -1,8 +1,8 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -161,19 +161,69 @@ func (r Resource) NameWithCounter() string {
 	return fmt.Sprintf("%s.%d", r.baseName, r.counter)
 }
 
+// Groups returns a slice of strings showing what groups the resource
+// should be a part of
+func (r Resource) Groups() []string {
+	var keyName string = "metadata.groups"
+	var groupStr string = r.State.Primary.Attributes[keyName]
+	if groupStr == "" {
+		return []string{"common"}
+	}
+
+	var groups []string
+	err := json.Unmarshal([]byte(groupStr), &groups)
+	if err != nil {
+		return []string{"common"}
+	}
+
+	return groups
+}
+
 // Address returns the IP address of this resource.
 func (r Resource) Address() string {
-	if keyName := os.Getenv("TF_KEY_NAME"); keyName != "" {
-		if ip := r.State.Primary.Attributes[keyName]; ip != "" {
+	var keyName string = "metadata.fqdn"
+	hostname := r.State.Primary.Attributes[keyName]
+
+	if hostname != "" {
+		return hostname
+	}
+	for _, key := range keyNames {
+		ip := r.State.Primary.Attributes[key]
+		if ip != "" {
 			return ip
-		}
-	} else {
-		for _, key := range keyNames {
-			if ip := r.State.Primary.Attributes[key]; ip != "" {
-				return ip
-			}
 		}
 	}
 
 	return ""
+}
+
+// Make a new function to return the list of host vars from the
+// tfstate. Maybe have two variables in terraform? Also parse json here.
+
+func (r Resource) Vars() map[string]string {
+	var keyNameA string = "metadata.vars"
+	var keyNameB string = "metadata.extra_vars"
+
+	var extraVars map[string]string = make(map[string]string)
+	if _, ok := r.State.Primary.Attributes[keyNameA]; !ok {
+		return extraVars
+	}
+	err := json.Unmarshal([]byte(r.State.Primary.Attributes[keyNameA]), &extraVars)
+	if err != nil {
+		return extraVars
+	}
+
+	var extraVarsAlt map[string]string = make(map[string]string)
+	if _, ok := r.State.Primary.Attributes[keyNameB]; !ok {
+		return extraVars
+	}
+	err = json.Unmarshal([]byte(r.State.Primary.Attributes[keyNameB]), &extraVarsAlt)
+	if err != nil {
+		return extraVars
+	}
+	for k, v := range extraVarsAlt {
+		extraVars[k] = v
+	}
+
+	return extraVars
 }

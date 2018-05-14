@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 )
 
@@ -42,97 +41,43 @@ func appendUniq(strs []string, item string) []string {
 	return strs
 }
 
-func gatherResources(s *state) map[string]interface{} {
-	outputGroups := make(map[string]interface{})
-
-	all := &allGroup{Hosts: make([]string, 0), Vars: make(map[string]interface{})}
-	types := make(map[string][]string)
-	individual := make(map[string][]string)
-	ordered := make(map[string][]string)
-	tags := make(map[string][]string)
-
-	unsortedOrdered := make(map[string][]*Resource)
+func gatherResources(s *state) (map[string][]string, map[string]map[string]string) {
+	inventoryMap := make(map[string][]string)
+	varsMap := make(map[string]map[string]string)
 
 	for _, res := range s.resources() {
-		// place in list of all resources
-		all.Hosts = appendUniq(all.Hosts, res.Address())
+		groups := res.Groups()
+		addr := res.Address()
 
-		// place in list of resource types
-		tp := fmt.Sprintf("type_%s", res.resourceType)
-		types[tp] = appendUniq(types[tp], res.Address())
+		vars := res.Vars()
+		varsMap[addr] = vars
 
-		unsortedOrdered[res.baseName] = append(unsortedOrdered[res.baseName], res)
-
-		// store as invdividual host (eg. <name>.<count>)
-		invdName := fmt.Sprintf("%s.%d", res.baseName, res.counter)
-		if old, exists := individual[invdName]; exists {
-			fmt.Fprintf(os.Stderr, "overwriting already existing individual key %s, old: %v, new: %v", invdName, old, res.Address())
-		}
-		individual[invdName] = []string{res.Address()}
-
-		// inventorize tags
-		for k, v := range res.Tags() {
-			// Valueless
-			tag := k
-			if v != "" {
-				tag = fmt.Sprintf("%s_%s", k, v)
+		for _, group := range groups {
+			_, ok := inventoryMap[group]
+			if !ok {
+				inventoryMap[group] = []string{}
 			}
-			tags[tag] = appendUniq(tags[tag], res.Address())
+			inventoryMap[group] = appendUniq(inventoryMap[group], addr)
 		}
 	}
 
-	// inventorize outputs as variables
-	if len(s.outputs()) > 0 {
-		for _, out := range s.outputs() {
-			all.Vars[out.keyName] = out.value
-		}
-	}
+	// If you want to sort the hosts within the groups, do it here
 
-	// sort the ordered groups
-	for basename, resources := range unsortedOrdered {
-		cs := counterSorter{resources}
-		sort.Sort(cs)
-
-		for i := range resources {
-			ordered[basename] = append(ordered[basename], resources[i].Address())
-		}
-	}
-
-	outputGroups["all"] = all
-	for k, v := range individual {
-		if old, exists := outputGroups[k]; exists {
-			fmt.Fprintf(os.Stderr, "individual overwriting already existing output with key %s, old: %v, new: %v", k, old, v)
-		}
-		outputGroups[k] = v
-	}
-	for k, v := range ordered {
-		if old, exists := outputGroups[k]; exists {
-			fmt.Fprintf(os.Stderr, "ordered overwriting already existing output with key %s, old: %v, new: %v", k, old, v)
-		}
-		outputGroups[k] = v
-	}
-	for k, v := range types {
-		if old, exists := outputGroups[k]; exists {
-			fmt.Fprintf(os.Stderr, "types overwriting already existing output key %s, old: %v, new: %v", k, old, v)
-		}
-		outputGroups[k] = v
-	}
-	for k, v := range tags {
-		if old, exists := outputGroups[k]; exists {
-			fmt.Fprintf(os.Stderr, "tags overwriting already existing output key %s, old: %v, new: %v", k, old, v)
-		}
-		outputGroups[k] = v
-	}
-
-	return outputGroups
+	return inventoryMap, varsMap
 }
 
 func cmdList(stdout io.Writer, stderr io.Writer, s *state) int {
-	return output(stdout, stderr, gatherResources(s))
+	groups, vars := gatherResources(s)
+	inventory := make(map[string]interface{})
+	for k, v := range groups {
+		inventory[k] = v
+	}
+	inventory["_meta"] = vars
+	return output(stdout, stderr, inventory)
 }
 
 func cmdInventory(stdout io.Writer, stderr io.Writer, s *state) int {
-	groups := gatherResources(s)
+	groups, vars := gatherResources(s)
 	group_names := []string{}
 	for group, _ := range groups {
 		group_names = append(group_names, group)
@@ -140,30 +85,18 @@ func cmdInventory(stdout io.Writer, stderr io.Writer, s *state) int {
 	sort.Strings(group_names)
 	for _, group := range group_names {
 
-		switch grp := groups[group].(type) {
-		case []string:
-			writeLn("["+group+"]", stdout, stderr)
-			for _, item := range grp {
-				writeLn(item, stdout, stderr)
+		// switch grp := groups[group].(type) {
+		// case []string:
+		writeLn("["+group+"]", stdout, stderr)
+		for _, host := range groups[group] {
+			_, err := io.WriteString(stdout, host)
+			checkErr(err, stderr)
+			for k, v := range vars[host] {
+				_, err := io.WriteString(stdout, " "+k+"="+v)
+				checkErr(err, stderr)
 			}
-
-		case *allGroup:
-			writeLn("["+group+"]", stdout, stderr)
-			for _, item := range grp.Hosts {
-				writeLn(item, stdout, stderr)
-			}
-			writeLn("", stdout, stderr)
-			writeLn("["+group+":vars]", stdout, stderr)
-			vars := []string{}
-			for key, _ := range grp.Vars {
-				vars = append(vars, key)
-			}
-			sort.Strings(vars)
-			for _, key := range vars {
-				jsonItem, _ := json.Marshal(grp.Vars[key])
-				itemLn := fmt.Sprintf("%s", string(jsonItem))
-				writeLn(key+"="+itemLn, stdout, stderr)
-			}
+			_, err = io.WriteString(stdout, "\n")
+			checkErr(err, stderr)
 		}
 
 		writeLn("", stdout, stderr)

@@ -69,21 +69,21 @@ func main() {
 	}
 
 	if f.IsDir() {
-		cmd := exec.Command("terraform", "state", "pull")
+		cmd := exec.Command("terragrunt", "state", "pull")
 		cmd.Dir = path
 		var out bytes.Buffer
 		cmd.Stdout = &out
 
 		err = cmd.Run()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error running `terraform state pull` in directory %s, %s\n", path, err)
+			fmt.Fprintf(os.Stderr, "Error running `terragrunt state pull` in directory %s, %s\n", path, err)
 			os.Exit(1)
 		}
 
 		err = s.read(&out)
 
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading `terraform state pull` output: %s\n", err)
+			fmt.Fprintf(os.Stderr, "Error reading `terragrunt state pull` output: %s\n", err)
 			os.Exit(1)
 		}
 
