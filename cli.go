@@ -69,10 +69,12 @@ func gatherResources(s *state) (map[string][]string, map[string]map[string]strin
 func cmdList(stdout io.Writer, stderr io.Writer, s *state) int {
 	groups, vars := gatherResources(s)
 	inventory := make(map[string]interface{})
+	meta := make(map[string]interface{})
 	for k, v := range groups {
 		inventory[k] = v
 	}
-	inventory["_meta"] = vars
+	meta["hostvars"] = vars
+	inventory["_meta"] = meta
 	return output(stdout, stderr, inventory)
 }
 
