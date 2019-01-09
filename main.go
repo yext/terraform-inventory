@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,51 @@ var version = flag.Bool("version", false, "print version information and exit")
 var list = flag.Bool("list", false, "list mode")
 var host = flag.String("host", "", "host mode")
 var inventory = flag.Bool("inventory", false, "inventory mode")
+
+func appendState(a state, b state) state {
+	return state{
+		Modules: append(a.Modules, b.Modules...),
+	}
+}
+
+func getState(directory string) state {
+	os.Chdir(directory)
+
+	cmd := exec.Command("terragrunt", "state", "pull")
+	cmd.Dir = directory
+	var out bytes.Buffer
+	cmd.Stdout = &out
+
+	var s state
+
+	err := cmd.Run()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error running `terragrunt state pull` in directory %s, %s, attempting to recurse\n", directory, err)
+		files, err := ioutil.ReadDir(directory)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading directory %s, %s, exiting\n", directory, err)
+			os.Exit(1)
+		}
+		for _, f := range files {
+			if f.IsDir() {
+				nextdir := fmt.Sprintf("%s/%s", directory, f.Name())
+				s = appendState(s, getState(nextdir))
+			}
+		}
+		return s
+	}
+
+	// Since state.read is addititve, it should parse this correctly
+	err = s.read(&out)
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading `terragrunt state pull` in directory %s, output: %s\n", directory, err)
+		return s
+	}
+
+	return s
+
+}
 
 func main() {
 	flag.Parse()
@@ -69,24 +115,9 @@ func main() {
 	}
 
 	if f.IsDir() {
-		cmd := exec.Command("terragrunt", "state", "pull")
-		cmd.Dir = path
-		var out bytes.Buffer
-		cmd.Stdout = &out
-
-		err = cmd.Run()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error running `terragrunt state pull` in directory %s, %s\n", path, err)
-			os.Exit(1)
-		}
-
-		err = s.read(&out)
-
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading `terragrunt state pull` output: %s\n", err)
-			os.Exit(1)
-		}
-
+		// Getstate will simply exit on error
+		cwd, _ := os.Getwd()
+		s = getState(cwd)
 	}
 
 	if s.Modules == nil {
