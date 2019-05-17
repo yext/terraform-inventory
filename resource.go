@@ -15,25 +15,6 @@ var keyNames []string
 var nameParser *regexp.Regexp
 
 func init() {
-	keyNames = []string{
-		"ipv4_address",                                        // DO and SoftLayer
-		"public_ip",                                           // AWS
-		"public_ipv6",                                         // Scaleway
-		"private_ip",                                          // AWS
-		"ipaddress",                                           // CS
-		"ip_address",                                          // VMware, Docker
-		"network_interface.0.ipv4_address",                    // VMware
-		"default_ip_address",                                  // provider.vsphere v1.1.1
-		"access_ip_v4",                                        // OpenStack
-		"floating_ip",                                         // OpenStack
-		"network_interface.0.access_config.0.nat_ip",          // GCE
-		"network_interface.0.access_config.0.assigned_nat_ip", // GCE
-		"network_interface.0.address",                         // GCE
-		"ipv4_address_private",                                // SoftLayer
-		"networks.0.ip4address",                               // Exoscale
-		"primaryip",                                           // Joyent Triton
-	}
-
 	// type.name.0
 	nameParser = regexp.MustCompile(`^(\w+)\.([\w\-]+)(?:\.(\d+))?$`)
 }
@@ -164,7 +145,7 @@ func (r Resource) NameWithCounter() string {
 // Groups returns a slice of strings showing what groups the resource
 // should be a part of
 func (r Resource) Groups() []string {
-	var keyName string = "metadata.groups"
+	var keyName string = "triggers.groups"
 	var groupStr string = r.State.Primary.Attributes[keyName]
 	if groupStr == "" {
 		return []string{"common"}
@@ -179,21 +160,20 @@ func (r Resource) Groups() []string {
 	return groups
 }
 
-// Address returns the IP address of this resource.
+// Address returns the IP address or FQDN of this resource.
 func (r Resource) Address() string {
-	var keyName string = "metadata.fqdn"
-	hostname := r.State.Primary.Attributes[keyName]
+	// Get the null resource first
+	if !strings.Contains(r.keyName, "null_resource.play_defs") {
+		return ""
+	}
 
+	var keyName string = "triggers.fqdn"
+	hostname := r.State.Primary.Attributes[keyName]
 	if hostname != "" {
 		return hostname
 	}
-	for _, key := range keyNames {
-		ip := r.State.Primary.Attributes[key]
-		if ip != "" {
-			return ip
-		}
-	}
 
+	// (im)Properly depricate the old openstack and AWS one to avoid duplicates
 	return ""
 }
 
@@ -201,28 +181,30 @@ func (r Resource) Address() string {
 // tfstate. Maybe have two variables in terraform? Also parse json here.
 
 func (r Resource) Vars() map[string]string {
-	var keyNameA string = "metadata.vars"
-	var keyNameB string = "metadata.extra_vars"
+
+	var keyNameA string = "triggers.vars"
 
 	var extraVars map[string]string = make(map[string]string)
 	if _, ok := r.State.Primary.Attributes[keyNameA]; !ok {
+		fmt.Printf("Could not find key %s\n", keyNameA)
 		return extraVars
 	}
 	err := json.Unmarshal([]byte(r.State.Primary.Attributes[keyNameA]), &extraVars)
 	if err != nil {
-		return extraVars
-	}
+		// There was a bug/mistake in the tf code where it
+		// would json marshal something twice. This should help ease the transition
+		var buf string
+		err = json.Unmarshal([]byte(r.State.Primary.Attributes[keyNameA]), &buf)
+		if err != nil {
+			fmt.Printf("Could not unmarshal json: %s\n", r.State.Primary.Attributes[keyNameA])
+			return extraVars
+		}
+		err = json.Unmarshal([]byte(buf), &extraVars)
+		if err != nil {
+			fmt.Printf("Could not unmarshal buf: %s\n", buf)
+			return extraVars
+		}
 
-	var extraVarsAlt map[string]string = make(map[string]string)
-	if _, ok := r.State.Primary.Attributes[keyNameB]; !ok {
-		return extraVars
-	}
-	err = json.Unmarshal([]byte(r.State.Primary.Attributes[keyNameB]), &extraVarsAlt)
-	if err != nil {
-		return extraVars
-	}
-	for k, v := range extraVarsAlt {
-		extraVars[k] = v
 	}
 
 	return extraVars
