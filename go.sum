@@ -1,0 +1,4 @@
+github.com/adammck/venv v0.0.0-20200610172036-e77789703e7c h1:RoL0r3mR3JSkLur8q8AD59cByJ+kRwJHODNimZBd7GI=
+github.com/adammck/venv v0.0.0-20200610172036-e77789703e7c/go.mod h1:3zXR2a/VSQndtpShh783rUTaEA2mpqN2VqZclBARBc0=
+github.com/blang/vfs v1.0.0 h1:AUZUgulCDzbaNjTRWEP45X7m/J10brAptZpSRKRZBZc=
+github.com/blang/vfs v1.0.0/go.mod h1:jjuNUc/IKcRNNWC9NUCvz4fR9PZLPIKxEygtPs/4tSI=
